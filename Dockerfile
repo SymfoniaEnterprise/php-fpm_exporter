@@ -1,10 +1,22 @@
+# Stage 1: Build
+FROM golang:1.26.5-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /php-fpm_exporter .
+
+# Stage 2: Runtime
 FROM alpine:3.22.1
 
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION
 
-COPY php-fpm_exporter /
+COPY --from=builder /php-fpm_exporter /
 
 EXPOSE     9253
 ENTRYPOINT [ "/php-fpm_exporter", "server" ]
