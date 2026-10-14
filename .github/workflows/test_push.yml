@@ -48,9 +48,33 @@ jobs:
 
   trivy-fs-scan:
     name: Trivy Filesystem Scan
-    uses: SymfoniaEnterprise/github-pipelines/.github/workflows/reusable-trivy.yml@main
-    with:
-      container_scan_mode: dispatch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Set up Trivy
+      uses: aquasecurity/setup-trivy@v0.3.1
+
+    - name: Run Trivy filesystem scan
+      run: |
+        trivy fs \
+          --config trivy.yaml \
+          --format sarif \
+          --output trivy-fs-results.sarif \
+          .
+
+    - name: Upload Trivy filesystem SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: trivy-fs-results.sarif
+        category: trivy-fs
 
   trivy-image-scan:
     name: Trivy Container Image Scan
