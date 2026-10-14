@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.26.9-alpine3.24 AS builder
 
 RUN apk add --no-cache git
 
@@ -10,7 +10,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /php-fpm_exporter .
 
 # Stage 2: Runtime
-FROM alpine:3.22.1
+FROM alpine:3.24.2
+RUN apk upgrade --no-cache
 
 ARG BUILD_DATE
 ARG VCS_REF

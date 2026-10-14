@@ -154,7 +154,7 @@ jobs:
     - name: Set up Trivy
       uses: aquasecurity/setup-trivy@v0.3.1
 
-    - name: Run Trivy image scan
+    - name: Run Trivy image scan (SARIF, for Security tab)
       run: |
         trivy image \
           --config /dev/null \
@@ -201,6 +201,16 @@ jobs:
             echo ':warning: No report was produced.'
           fi
         } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail on HIGH/CRITICAL findings
+      run: |
+        trivy image \
+          --config /dev/null \
+          --ignorefile .trivyignore \
+          --format table \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          php-fpm_exporter:scan
 
   summary:
     name: Pipeline Summary
