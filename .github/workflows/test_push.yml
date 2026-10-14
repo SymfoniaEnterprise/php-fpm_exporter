@@ -29,6 +29,19 @@ jobs:
       with:
         version: v2.14.0
 
+    - name: Write summary
+      if: always()
+      run: |
+        {
+          echo '### Lint'
+          echo ''
+          if [ "${{ job.status }}" = "success" ]; then
+            echo ':white_check_mark: golangci-lint found no issues.'
+          else
+            echo ':x: golangci-lint reported issues — see the job log above for details.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -46,11 +59,74 @@ jobs:
     - name: Test
       run: go test -coverprofile cover.out ./...
 
+    - name: Write summary
+      if: always()
+      run: |
+        {
+          echo '### Test'
+          echo ''
+          if [ -f cover.out ]; then
+            total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}')
+            echo "Total coverage: **${total:-n/a}**"
+            echo ''
+            echo '<details><summary>Per-function coverage</summary>'
+            echo ''
+            echo '```text'
+            go tool cover -func=cover.out
+            echo '```'
+            echo '</details>'
+          else
+            echo ':x: Tests failed before a coverage profile was produced.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
   trivy-fs-scan:
     name: Trivy Filesystem Scan
-    uses: SymfoniaEnterprise/github-pipelines/.github/workflows/reusable-trivy.yml@main
-    with:
-      container_scan_mode: dispatch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Set up Trivy
+      uses: aquasecurity/setup-trivy@v0.3.1
+
+    - name: Run Trivy filesystem scan
+      run: |
+        trivy fs \
+          --config trivy.yaml \
+          --format sarif \
+          --output trivy-fs-results.sarif \
+          .
+
+    - name: Upload Trivy filesystem SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: trivy-fs-results.sarif
+        category: trivy-fs
+
+    - name: Write summary
+      if: always()
+      run: |
+        {
+          echo '### Trivy Filesystem Scan'
+          echo ''
+          echo 'Scope: HIGH/CRITICAL vulnerabilities, secrets, misconfigurations (see trivy.yaml)'
+          echo ''
+          if [ -f trivy-fs-results.sarif ]; then
+            findings=$(python3 -c "import json,sys; d=json.load(open('trivy-fs-results.sarif')); print(sum(len(r.get('results', [])) for r in d.get('runs', [])))")
+            echo "Findings: **${findings}**"
+            echo ''
+            echo 'Full results: see the Security tab (category \`trivy-fs\`).'
+          else
+            echo ':warning: No SARIF report was produced.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
 
   trivy-image-scan:
     name: Trivy Container Image Scan
@@ -88,9 +164,72 @@ jobs:
           --severity HIGH,CRITICAL \
           php-fpm_exporter:scan
 
+    - name: Generate image vulnerability report
+      if: always()
+      run: |
+        trivy image \
+          --config /dev/null \
+          --ignorefile .trivyignore \
+          --format table \
+          --severity HIGH,CRITICAL \
+          --output trivy-image-report.txt \
+          php-fpm_exporter:scan || true
+
     - name: Upload Trivy image SARIF
       uses: github/codeql-action/upload-sarif@v4
       if: always()
       with:
         sarif_file: trivy-image-results.sarif
         category: trivy-image
+
+    - name: Write summary
+      if: always()
+      run: |
+        {
+          echo '### Trivy Container Image Scan'
+          echo ''
+          echo 'Scope: HIGH/CRITICAL vulnerabilities in the built image'
+          echo ''
+          if [ -f trivy-image-report.txt ]; then
+            echo '<details><summary>Expand HIGH/CRITICAL vulnerability report</summary>'
+            echo ''
+            echo '```text'
+            cat trivy-image-report.txt
+            echo '```'
+            echo '</details>'
+          else
+            echo ':warning: No report was produced.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  summary:
+    name: Pipeline Summary
+    if: always()
+    needs: [lint, test, trivy-fs-scan, trivy-image-scan]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Write overall summary
+      env:
+        LINT_RESULT: ${{ needs.lint.result }}
+        TEST_RESULT: ${{ needs.test.result }}
+        FS_SCAN_RESULT: ${{ needs.trivy-fs-scan.result }}
+        IMAGE_SCAN_RESULT: ${{ needs.trivy-image-scan.result }}
+      run: |
+        status_icon() {
+          case "$1" in
+            success) echo ':white_check_mark:' ;;
+            skipped) echo ':fast_forward:' ;;
+            *) echo ':x:' ;;
+          esac
+        }
+
+        {
+          echo '## Pipeline Summary'
+          echo ''
+          echo '| Job | Result |'
+          echo '|-----|--------|'
+          echo "| Lint | $(status_icon "$LINT_RESULT") $LINT_RESULT |"
+          echo "| Test | $(status_icon "$TEST_RESULT") $TEST_RESULT |"
+          echo "| Trivy Filesystem Scan | $(status_icon "$FS_SCAN_RESULT") $FS_SCAN_RESULT |"
+          echo "| Trivy Container Image Scan | $(status_icon "$IMAGE_SCAN_RESULT") $IMAGE_SCAN_RESULT |"
+        } >> "$GITHUB_STEP_SUMMARY"
