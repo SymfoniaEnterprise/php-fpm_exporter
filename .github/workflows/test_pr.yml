@@ -61,25 +61,19 @@ jobs:
         fetch-depth: 0
         ref: "refs/pull/${{ github.event.number }}/merge"
 
-    - name: Setup Go
-      uses: actions/setup-go@v5.5.0
+    - name: Build image
+      uses: docker/build-push-action@v6
       with:
-        go-version: 1.17
-      id: go
-
-    - name: Run GoReleaser
-      uses: goreleaser/goreleaser-action@v4.3.0
-      with:
-        version: latest
-        args: release --rm-dist --snapshot
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        context: .
+        push: false
+        load: true
+        tags: php-fpm_exporter:scan
 
     - name: Scan image
       uses: anchore/scan-action@v6.5.0
       id: scan
       with:
-        image: "hipages/php-fpm_exporter:latest"
+        image: "php-fpm_exporter:scan"
         acs-report-enable: true
         fail-build: false
 
