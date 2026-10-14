@@ -46,12 +46,6 @@ jobs:
     - name: Test
       run: go test -coverprofile cover.out ./...
 
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@v5.0.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
   trivy-fs-scan:
     name: Trivy Filesystem Scan
     uses: SymfoniaEnterprise/github-pipelines/.github/workflows/reusable-trivy.yml@main
@@ -80,6 +74,9 @@ jobs:
         push: false
         load: true
         tags: php-fpm_exporter:scan
+
+    - name: Set up Trivy
+      uses: aquasecurity/setup-trivy@v0.3.1
 
     - name: Run Trivy image scan
       run: |
