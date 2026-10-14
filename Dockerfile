@@ -18,6 +18,9 @@ ARG VERSION
 
 COPY --from=builder /php-fpm_exporter /
 
+RUN addgroup -S exporter && adduser -S -G exporter exporter
+USER exporter
+
 EXPOSE     9253
 ENTRYPOINT [ "/php-fpm_exporter", "server" ]
 
