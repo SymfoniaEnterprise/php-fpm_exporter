@@ -1,6 +1,6 @@
 name: Test PR
 on:
-  pull_request_target:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -11,20 +11,20 @@ jobs:
     steps:
 
     - name: Set up Go
-      uses: actions/setup-go@v5.5.0
+      uses: actions/setup-go@v7.0.0
       with:
-        go-version: 1.17
+        go-version: 1.25.5
       id: go
 
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7.0.1
       with:
         fetch-depth: 0
 
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v6.5.0
+      uses: golangci/golangci-lint-action@v9.3.0
       with:
-        version: v1.44
+        version: v2.14.0
 
   test:
     name: Test
@@ -32,58 +32,86 @@ jobs:
     steps:
 
     - name: Setup Go
-      uses: actions/setup-go@v5.5.0
+      uses: actions/setup-go@v7.0.0
       with:
-        go-version: 1.17
+        go-version: 1.25.5
       id: go
 
     - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        ref: "refs/pull/${{ github.event.number }}/merge"
+      uses: actions/checkout@v7.0.1
 
     - name: Test
       run: go test -coverprofile cover.out ./...
 
-    - name: SonarCloud Scan
-      uses: sonarsource/sonarcloud-github-action@master
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  image-scan:
-    name: Image Scan
+  trivy-fs-scan:
+    name: Trivy Filesystem Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7.0.1
       with:
         fetch-depth: 0
-        ref: "refs/pull/${{ github.event.number }}/merge"
 
-    - name: Setup Go
-      uses: actions/setup-go@v5.5.0
-      with:
-        go-version: 1.17
-      id: go
+    - name: Set up Trivy
+      uses: aquasecurity/setup-trivy@v0.3.1
 
-    - name: Run GoReleaser
-      uses: goreleaser/goreleaser-action@v4.3.0
-      with:
-        version: latest
-        args: release --rm-dist --snapshot
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run Trivy filesystem scan
+      run: |
+        trivy fs \
+          --config trivy.yaml \
+          --format sarif \
+          --output trivy-fs-results.sarif \
+          .
 
-    - name: Scan image
-      uses: anchore/scan-action@v6.5.0
-      id: scan
+    - name: Upload Trivy filesystem SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
       with:
-        image: "hipages/php-fpm_exporter:latest"
-        acs-report-enable: true
-        fail-build: false
+        sarif_file: trivy-fs-results.sarif
+        category: trivy-fs
 
-    - name: Upload Anchore scan SARIF report
-      uses: github/codeql-action/upload-sarif@v2
+  trivy-image-scan:
+    name: Trivy Container Image Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7.0.1
       with:
-        sarif_file: ${{ steps.scan.outputs.sarif }}
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4.4.1
+
+    - name: Build image
+      uses: docker/build-push-action@v7.4.0
+      with:
+        context: .
+        push: false
+        load: true
+        tags: php-fpm_exporter:scan
+
+    - name: Set up Trivy
+      uses: aquasecurity/setup-trivy@v0.3.1
+
+    - name: Run Trivy image scan
+      run: |
+        trivy image \
+          --config /dev/null \
+          --ignorefile .trivyignore \
+          --format sarif \
+          --output trivy-image-results.sarif \
+          --severity HIGH,CRITICAL \
+          php-fpm_exporter:scan
+
+    - name: Upload Trivy image SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      if: always()
+      with:
+        sarif_file: trivy-image-results.sarif
+        category: trivy-image

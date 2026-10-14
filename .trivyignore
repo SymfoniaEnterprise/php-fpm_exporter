@@ -1,0 +1,3 @@
+# Ignore list for Trivy filesystem/image scans.
+# Add entries only after confirming they are acceptable false positives
+# or intentionally accepted findings for this repository.
