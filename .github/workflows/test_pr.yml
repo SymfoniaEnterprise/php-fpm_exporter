@@ -102,6 +102,7 @@ jobs:
     - name: Run Trivy image scan
       run: |
         trivy image \
+          --config /dev/null \
           --ignorefile .trivyignore \
           --format sarif \
           --output trivy-image-results.sarif \
